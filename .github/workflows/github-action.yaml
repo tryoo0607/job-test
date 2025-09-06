@@ -1,0 +1,66 @@
+name: Build and Push Images
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  push-image-to-docker-hub:
+    name: Push Docker image to Docker Hub
+    runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKER_USERNAME }} 
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKER_PASSWORD }}
+      REPOSITORY_NAME: "job-test"  
+    permissions:
+      packages: write
+      contents: read
+      attestations: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Log in to Docker Hub
+        uses: docker/login-action@f4ef78c080cd8ba55a85445d5b36e214a81df20a
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
+        with:
+          images: ${{ env.REPOSITORY_NAME }}
+          flavor: |
+            latest=false
+          tags: |
+            # latest 만 생성
+            type=raw,value=latest
+
+            # 기본 브랜치에서만 latest 생성
+            # type=raw,value=latest,enable={{is_default_branch}}
+            # v* 태그 push 시, 그 태그명 그대로 사용 (예: v1.2.3)
+            # type=ref,event=tag
+      - name: Build and push Docker image
+        id: push
+        uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+      # - name: Generate artifact attestation
+      #   uses: actions/attest-build-provenance@v2
+      #   with:
+      #     subject-name: index.docker.io/tryoo0607/pod-lifecycle-test
+      #     subject-digest: ${{ steps.push.outputs.digest }}
+      #     push-to-registry: true
+      - name: Update Docker Hub description
+        uses: peter-evans/dockerhub-description@e98e4d1628a5f3be2be7c231e50981aee98723ae # v4.0.0
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
+          repository: ${{ env.REPOSITORY_NAME }}            # 본인 리포로 변경
+          enable-url-completion: true                       # README 내부 상대링크 보정(옵션)
+          # readme-filepath: ./docs/README.md               # 루트가 아니면 경로 지정
+          
