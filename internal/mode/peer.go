@@ -11,23 +11,26 @@ import (
 )
 
 func RunIndexedPeer(ctx context.Context, cfg config.Config) error {
+	fmt.Println("🚀 [Peer] RunIndexedPeer 시작")
+
 	if cfg.JobIndex == nil {
 		return fmt.Errorf("job-index missing in indexed-peer mode")
 	}
 
 	idx := *cfg.JobIndex
-	targetIndex := (idx + 1) % cfg.TotalPods // 다음 노드
+	fmt.Printf("🔧 [Peer] 현재 job-index: %d\n", idx)
+	fmt.Printf("🔧 [Peer] 전체 Pod 수: %d\n", cfg.TotalPods)
 
-	// 호스트명: myjob-1.subdomain.svc.cluster.local
+	targetIndex := (idx + 1) % cfg.TotalPods
+	fmt.Printf("🎯 [Peer] 타겟 인덱스: %d\n", targetIndex)
+
 	targetHost := fmt.Sprintf("myjob-%d.%s", targetIndex, cfg.Subdomain)
 	url := fmt.Sprintf("http://%s:8080/ping", targetHost)
 
-	fmt.Printf("[Indexed-Peer] Pod-%d → POST to %s\n", idx, url)
+	fmt.Printf("🌐 [Peer] HTTP POST 전송: %s\n", url)
 
-	// 샘플 바디
 	body := []byte(fmt.Sprintf(`{"from": %d}`, idx))
 
-	// 간단한 HTTP 요청
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
@@ -41,7 +44,7 @@ func RunIndexedPeer(ctx context.Context, cfg config.Config) error {
 	}
 	defer resp.Body.Close()
 
-	fmt.Printf("[Indexed-Peer] Got response: %s\n", resp.Status)
+	fmt.Printf("✅ [Peer] 응답 수신 완료: %s\n", resp.Status)
 
 	return nil
 }
