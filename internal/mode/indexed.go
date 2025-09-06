@@ -21,7 +21,7 @@ func RunIndexed(ctx context.Context, cfg config.Config) error {
 	idx := *cfg.JobIndex
 	fmt.Printf("🔧 [Indexed] 받은 job-index: %d\n", idx)
 
-	in := filepath.Join(cfg.InputDir, fmt.Sprintf("input-%d.txt", idx))
+	in := filepath.Join(cfg.InputDir, fmt.Sprintf("input-%02d.txt", idx))
 	fmt.Printf("📄 [Indexed] 처리할 입력 파일 경로: %s\n", in)
 
 	p := processor.UppercaseFile{OutDir: cfg.OutputDir}
