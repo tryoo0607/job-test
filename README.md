@@ -139,6 +139,7 @@ INDEX BASED PROCESSING
 | `--subdomain`              | Peer 모드에서 사용할 서브도메인 이름           |
 | `--total-pods`             | Peer 구조에서 총 Pod 수                         |
 | `JOB_COMPLETION_INDEX`     | Indexed Job Index 값 (env 전용)                |
+| `HOLD_FOR`     | 성공 및 완료 후 Pod를 Running 상태로 유지하는 시간 (env 전용)                |
 
 ---
 
