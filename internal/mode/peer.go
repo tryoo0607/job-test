@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"sort"
 	"time"
 
@@ -16,25 +15,30 @@ import (
 func RunIndexedPeer(ctx context.Context, cfg config.Config) error {
 	fmt.Println("🚀 [Peer] Deployment 모드: DNS로 피어 탐색 시작")
 
-	selfIP := os.Getenv("POD_IP") // Downward API로 주입
-	if selfIP == "" {
-		return fmt.Errorf("POD_IP env missing (set via fieldRef:status.podIP)")
+	// ✅ config에서 주입
+	if cfg.PodIP == "" {
+		return fmt.Errorf("POD_IP (cfg.PodIP) missing; set via Downward API (status.podIP)")
+	}
+	if cfg.Subdomain == "" {
+		return fmt.Errorf("SUBDOMAIN (cfg.Subdomain) missing; set headless svc name")
 	}
 
-	// 헤드리스 서비스 이름(= cfg.Subdomain)로 A레코드 조회
-	svc := cfg.Subdomain // 예: "peer-svc"
-	ips, err := net.LookupIP(svc)
+	// ✅ 컨텍스트 기반 DNS 조회(타임아웃)
+	dnsCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	addrs, err := net.DefaultResolver.LookupIPAddr(dnsCtx, cfg.Subdomain)
 	if err != nil {
-		return fmt.Errorf("lookup %s failed: %w", svc, err)
+		return fmt.Errorf("lookup %s failed: %w", cfg.Subdomain, err)
 	}
-	if len(ips) == 0 {
-		return fmt.Errorf("no peers found for %s", svc)
+	if len(addrs) == 0 {
+		return fmt.Errorf("no peers found for %s", cfg.Subdomain)
 	}
 
 	// 문자열로 정렬(결정적 순서)
-	var peers []string
-	for _, ip := range ips {
-		peers = append(peers, ip.String())
+	peers := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		peers = append(peers, a.IP.String())
 	}
 	sort.Strings(peers)
 	fmt.Printf("🔎 peers: %v\n", peers)
@@ -42,13 +46,13 @@ func RunIndexedPeer(ctx context.Context, cfg config.Config) error {
 	// 내 위치 찾기
 	selfIdx := -1
 	for i, ip := range peers {
-		if ip == selfIP {
+		if ip == cfg.PodIP {
 			selfIdx = i
 			break
 		}
 	}
 	if selfIdx == -1 {
-		return fmt.Errorf("self IP %s not in peers %v", selfIP, peers)
+		return fmt.Errorf("self IP %s not in peers %v", cfg.PodIP, peers)
 	}
 	if len(peers) == 1 {
 		fmt.Println("ℹ️ 단일 파드 환경 → 스킵")
@@ -59,9 +63,9 @@ func RunIndexedPeer(ctx context.Context, cfg config.Config) error {
 	targetIP := peers[targetIdx]
 	url := fmt.Sprintf("http://%s:8080/ping", targetIP)
 
-	fmt.Printf("🌐 POST → %s (from %s)\n", url, selfIP)
+	fmt.Printf("🌐 POST → %s (from %s)\n", url, cfg.PodIP)
 
-	body := []byte(fmt.Sprintf(`{"from":"%s"}`, selfIP))
+	body := []byte(fmt.Sprintf(`{"from":"%s"}`, cfg.PodIP))
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
