@@ -11,7 +11,7 @@ jobs:
     env:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKER_USERNAME }} 
       DOCKERHUB_TOKEN: ${{ secrets.DOCKER_PASSWORD }}
-      REPOSITORY_NAME: "job-test"  
+      REPOSITORY_NAME: "tryoo0607/job-test"  
     permissions:
       packages: write
       contents: read
