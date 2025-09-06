@@ -15,4 +15,6 @@ type Config struct {
 	InputDir       string        `mapstructure:"input-dir"`
 	OutputDir      string        `mapstructure:"output-dir"`
 	JobIndex       *int          `mapstructure:"job-index"`
+	TotalPods      int           `mapstructure:"total-pods"`
+	Subdomain      string        `mapstructure:"subdomain"` // 헤드리스 서비스 이름
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"github.com/tryoo0607/job-test/internal/api"
 )
 
 var v *viper.Viper
@@ -43,6 +44,8 @@ func loadFlag() {
 	pflag.String("input-dir", "/data/inputs", "input dir")
 	pflag.String("output-dir", "/data/outputs", "output dir")
 	// job-index는 env전용이라 플래그 생략
+	pflag.Int("total-pods", 1, "total number of pods (for indexed-peer mode)")
+	pflag.String("subdomain", "", "headless service subdomain (for indexed-peer mode)")
 	pflag.Parse()
 }
 
@@ -87,7 +90,7 @@ func unmarshalConfig() (*Config, error) {
 // Config 값 검증
 func validate(cfg *Config) error {
 	switch cfg.Mode {
-	case "indexed", "fixed", "queue":
+	case api.Indexed, api.Peer, api.Fixed, api.Queue:
 	default:
 		return fmt.Errorf("invalid mode: %q", cfg.Mode)
 	}
