@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"regexp"
 	"sort"
 	"time"
 
@@ -14,7 +16,8 @@ import (
 )
 
 func RunIndexedPeer(ctx context.Context, cfg config.Config) error {
-	fmt.Println("🚀 [Peer] Headless SVC DNS 기반 링 통신 시작")
+	fmt.Println("🚀 [Peer] Headless SVC per-pod FQDN로 링 통신")
+
 	if cfg.JobIndex == nil {
 		return fmt.Errorf("JOB_COMPLETION_INDEX missing")
 	}
@@ -24,7 +27,7 @@ func RunIndexedPeer(ctx context.Context, cfg config.Config) error {
 
 	myIdx := *cfg.JobIndex
 
-	// 수신 서버는 먼저 띄워둠
+	// 수신 서버 먼저 오픈
 	go func() {
 		mux := http.NewServeMux()
 		mux.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
@@ -34,34 +37,36 @@ func RunIndexedPeer(ctx context.Context, cfg config.Config) error {
 		_ = http.ListenAndServe(":8080", mux)
 	}()
 
-	svc := cfg.Subdomain
-
-	// 1) WARM-UP: peers 모일 때까지 대기
-	// want 계산: TotalPods를 넘겨주고 있으면 그 값, 아니면 최소 2
-	want := 2
-	if cfg.TotalPods > 0 {
-		want = cfg.TotalPods
+	// 총 파드 수 결정: 있으면 그대로, 없으면 DNS로 warm-up해서 개수 추정
+	total := cfg.TotalPods
+	if total <= 0 {
+		peers, err := waitForPeers(ctx, cfg.Subdomain, 2, 60*time.Second) // 최소 2개 모일 때까지
+		if err != nil {
+			return err
+		}
+		total = len(peers)
+		fmt.Printf("🔢 total pods inferred from DNS: %d\n", total)
 	}
 
-	warmup := 30 * time.Second // 기본값 (원하면 config로 뺄 수 있음)
-	peers, err := waitForPeers(ctx, svc, want, warmup)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("🔎 peers(%d): %v\n", len(peers), peers)
+	next := (myIdx + 1) % total
 
-	targetIP := peers[(myIdx+1)%len(peers)]
-	url := fmt.Sprintf("http://%s:8080/ping", targetIP)
-	fmt.Printf("🎯 target: %s (selfIdx=%d)\n", url, myIdx)
+	// ✅ per-pod FQDN: <job-name>-<index>.<subdomain>
+	//   - job-name은 Indexed Job에서 각 Pod의 hostname이 "<job-name>-<index>"로 자동 설정됨
+	//   - 내 hostname에서 base만 추출하거나, env로 넘긴 JOB_NAME을 쓰는 둘 중 택1
+	hostBase, _ := os.Hostname() // ex) "peer-job-1"
+	base := regexp.MustCompile(`^(.*)-\d+$`).ReplaceAllString(hostBase, `$1`)
+	targetHost := fmt.Sprintf("%s-%d.%s", base, next, cfg.Subdomain)
 
-	// 2) HTTP 재시도: runtime.WithRetry 사용 (cfg.RetryMax / cfg.RetryBackoff로 조절)
+	url := fmt.Sprintf("http://%s:8080/ping", targetHost)
+	fmt.Printf("🎯 target: %s (selfIdx=%d, total=%d)\n", url, myIdx, total)
+
 	client := &http.Client{Timeout: 5 * time.Second}
-	err = runtime.WithRetry(ctx, cfg.RetryMax, cfg.RetryBackoff, func() error {
+	err := runtime.WithRetry(ctx, cfg.RetryMax, cfg.RetryBackoff, func() error {
 		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBufferString(
 			fmt.Sprintf(`{"from":%d}`, myIdx),
 		))
 		if err != nil {
-			return fmt.Errorf("build request: %w", err)
+			return err
 		}
 		req.Header.Set("Content-Type", "application/json")
 
@@ -71,10 +76,9 @@ func RunIndexedPeer(ctx context.Context, cfg config.Config) error {
 		}
 		defer resp.Body.Close()
 
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		if resp.StatusCode/100 == 2 {
 			fmt.Printf("✅ 응답: %s\n", resp.Status)
-			// 성공 시에만 hold
-			runtime.Hold(ctx, cfg.HoldFor)
+			runtime.Hold(ctx, cfg.HoldFor) // 성공 시에만 hold
 			return nil
 		}
 		return fmt.Errorf("bad status: %s", resp.Status)
