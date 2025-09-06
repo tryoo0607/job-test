@@ -4,81 +4,57 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"net"
 	"net/http"
-	"sort"
 	"time"
 
 	"github.com/tryoo0607/job-test/internal/config"
 )
 
 func RunIndexedPeer(ctx context.Context, cfg config.Config) error {
-	fmt.Println("🚀 [Peer] Deployment 모드: DNS로 피어 탐색 시작")
+	fmt.Println("🚀 [Peer] Indexed Job 호스트네임 기반 통신 시작")
 
-	// ✅ config에서 주입
-	if cfg.PodIP == "" {
-		return fmt.Errorf("POD_IP (cfg.PodIP) missing; set via Downward API (status.podIP)")
+	// 필수값 체크
+	if cfg.JobIndex == nil {
+		return fmt.Errorf("JOB_COMPLETION_INDEX missing")
+	}
+	if cfg.TotalPods <= 0 {
+		return fmt.Errorf("total-pods must be > 0")
 	}
 	if cfg.Subdomain == "" {
-		return fmt.Errorf("SUBDOMAIN (cfg.Subdomain) missing; set headless svc name")
+		return fmt.Errorf("subdomain (headless svc name) missing")
+	}
+	if cfg.JobName == "" {
+		return fmt.Errorf("job-name missing")
 	}
 
-	// ✅ 컨텍스트 기반 DNS 조회(타임아웃)
-	dnsCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
+	selfIdx := *cfg.JobIndex
+	targetIdx := (selfIdx + 1) % cfg.TotalPods
 
-	addrs, err := net.DefaultResolver.LookupIPAddr(dnsCtx, cfg.Subdomain)
-	if err != nil {
-		return fmt.Errorf("lookup %s failed: %w", cfg.Subdomain, err)
-	}
-	if len(addrs) == 0 {
-		return fmt.Errorf("no peers found for %s", cfg.Subdomain)
-	}
+	// <job-name>-<index>.<subdomain>
+	targetHost := fmt.Sprintf("%s-%d.%s", cfg.JobName, targetIdx, cfg.Subdomain)
+	url := fmt.Sprintf("http://%s:8080/ping", targetHost)
+	fmt.Printf("🎯 target: %s (self=%d → next=%d)\n", url, selfIdx, targetIdx)
 
-	// 문자열로 정렬(결정적 순서)
-	peers := make([]string, 0, len(addrs))
-	for _, a := range addrs {
-		peers = append(peers, a.IP.String())
-	}
-	sort.Strings(peers)
-	fmt.Printf("🔎 peers: %v\n", peers)
-
-	// 내 위치 찾기
-	selfIdx := -1
-	for i, ip := range peers {
-		if ip == cfg.PodIP {
-			selfIdx = i
-			break
+	// (권장) 짧은 재시도: DNS/Endpoint 전파 지연 흡수
+	client := &http.Client{Timeout: 3 * time.Second}
+	var lastErr error
+	for attempt := 1; attempt <= 5; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBufferString(
+			fmt.Sprintf(`{"from":%d}`, selfIdx),
+		))
+		if err != nil {
+			return fmt.Errorf("build request: %w", err)
 		}
-	}
-	if selfIdx == -1 {
-		return fmt.Errorf("self IP %s not in peers %v", cfg.PodIP, peers)
-	}
-	if len(peers) == 1 {
-		fmt.Println("ℹ️ 단일 파드 환경 → 스킵")
-		return nil
-	}
+		req.Header.Set("Content-Type", "application/json")
 
-	targetIdx := (selfIdx + 1) % len(peers)
-	targetIP := peers[targetIdx]
-	url := fmt.Sprintf("http://%s:8080/ping", targetIP)
-
-	fmt.Printf("🌐 POST → %s (from %s)\n", url, cfg.PodIP)
-
-	body := []byte(fmt.Sprintf(`{"from":"%s"}`, cfg.PodIP))
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("build request: %w", err)
+		resp, err := client.Do(req)
+		if err == nil && resp != nil {
+			defer resp.Body.Close()
+			fmt.Printf("✅ 응답: %s (attempt=%d)\n", resp.Status, attempt)
+			return nil
+		}
+		lastErr = err
+		time.Sleep(time.Duration(attempt) * 200 * time.Millisecond)
 	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	fmt.Printf("✅ 응답: %s\n", resp.Status)
-	return nil
+	return fmt.Errorf("send to %s failed: %v", targetHost, lastErr)
 }
