@@ -30,5 +30,4 @@ WORKDIR /
 COPY --from=builder /job-test-build /job-test
 COPY --from=builder /data/inputs /data/inputs
 
-# Job 테스트라는 의미에 맞게 entrypoint 제거
-# ENTRYPOINT ["/job-test"]
+ENTRYPOINT ["/job-test"]
