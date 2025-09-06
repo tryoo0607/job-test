@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/tryoo0607/job-test/internal/config"
 	"github.com/tryoo0607/job-test/internal/processor"
@@ -14,7 +15,7 @@ import (
 func RunFixed(ctx context.Context, cfg config.Config) error {
 	fmt.Println("🔧 [RunFixed] 시작")
 
-	items := loadItems(cfg.Items, cfg.ItemsFile)
+	items := loadItems(cfg.Items, cfg.ItemsFile, cfg.InputDir)
 	fmt.Printf("🔧 [RunFixed] 총 로드된 items 개수: %d\n", len(items))
 	for _, it := range items {
 		fmt.Printf("    ↳ ID: %s, Path: %s\n", it.ID, it.Path)
@@ -42,11 +43,12 @@ func RunFixed(ctx context.Context, cfg config.Config) error {
 	return err
 }
 
-func loadItems(values []string, filePath string) []processor.Item {
+func loadItems(values []string, itemList string, inputDir string) []processor.Item {
 	var items []processor.Item
 
 	fmt.Printf("🔍 [loadItems] values 개수: %d\n", len(values))
 	for i, v := range values {
+		// 절대 경로 또는 상대 경로로 직접 지정된 경우
 		fmt.Printf("📥 [loadItems] values 추가: val-%d = %s\n", i, v)
 		items = append(items, processor.Item{
 			ID:   fmt.Sprintf("val-%d", i),
@@ -54,9 +56,9 @@ func loadItems(values []string, filePath string) []processor.Item {
 		})
 	}
 
-	if filePath != "" {
-		fmt.Printf("📂 [loadItems] items-file 경로: %s\n", filePath)
-		f, err := os.Open(filePath)
+	if itemList != "" {
+		fmt.Printf("📂 [loadItems] items-file 경로: %s\n", itemList)
+		f, err := os.Open(itemList)
 		if err != nil {
 			fmt.Printf("❌ [loadItems] 파일 열기 실패: %v\n", err)
 		} else {
@@ -64,11 +66,12 @@ func loadItems(values []string, filePath string) []processor.Item {
 			scanner := bufio.NewScanner(f)
 			idx := len(items)
 			for scanner.Scan() {
-				path := scanner.Text()
-				fmt.Printf("📥 [loadItems] file 추가: file-%d = %s\n", idx, path)
+				rel := scanner.Text()
+				abs := filepath.Join(inputDir, rel)
+				fmt.Printf("📥 [loadItems] file 추가: file-%d = %s (⇒ %s)\n", idx, rel, abs)
 				items = append(items, processor.Item{
 					ID:   fmt.Sprintf("file-%d", idx),
-					Path: path,
+					Path: abs,
 				})
 				idx++
 			}
