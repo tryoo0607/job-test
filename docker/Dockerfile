@@ -19,7 +19,7 @@ RUN go mod download
 COPY . .
 COPY assets/inputs/ /data/inputs/
 
-RUN go build -trimpath -ldflags="-s -w" -o /job-test-build /cmd/entrypoint
+RUN go build -trimpath -ldflags="-s -w" -o /job-test-build ./cmd/entrypoint
 
 ############## RUN ##############
 # FROM scratch
