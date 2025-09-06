@@ -37,6 +37,10 @@ func (u UppercaseFile) Process(ctx context.Context, it Item) error {
 	outPath := filepath.Join(u.OutDir, fmt.Sprintf("output-%s.txt", it.ID))
 	fmt.Printf("📤 [Processor] 출력 경로: %s\n", outPath)
 
+	if err := os.MkdirAll(u.OutDir, os.ModePerm); err != nil {
+		return fmt.Errorf("create output dir: %w", err)
+	}
+
 	// 4) 출력 파일 저장
 	if err := os.WriteFile(outPath, []byte(upper), 0644); err != nil {
 		fmt.Printf("❌ [Processor] 출력 파일 저장 실패: %v\n", err)
