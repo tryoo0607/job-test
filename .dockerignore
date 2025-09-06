@@ -1,0 +1,21 @@
+# Git & VCS
+.git
+.gitignore
+.github/
+
+# 문서 (README는 필요시 포함)
+*.md
+
+# 빌드/캐시/임시 파일
+**/*.log
+tmp/
+dist/
+bin/
+vendor/
+coverage.out
+
+# Node / Frontend
+node_modules/
+
+# Dockerfile 빌드 시 포함시키려면 주석 처리
+docker/Dockerfile
