@@ -17,4 +17,5 @@ type Config struct {
 	JobIndex       *int          `mapstructure:"job-index"`
 	TotalPods      int           `mapstructure:"total-pods"`
 	Subdomain      string        `mapstructure:"subdomain"` // 헤드리스 서비스 이름
+	PodIP          string        `mapstructure:"pod-ip"`
 }

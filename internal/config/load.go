@@ -64,6 +64,10 @@ func loadEnv() {
 	if err := v.BindEnv("job-index", "JOB_COMPLETION_INDEX"); err != nil {
 		panic(fmt.Errorf("bind job-index failed: %w", err))
 	}
+
+	if err := v.BindEnv("pod-ip", "POD_IP"); err != nil {
+		panic(fmt.Errorf("bind pod-ip failed: %w", err))
+	}
 }
 
 func unmarshalConfig() (*Config, error) {
@@ -94,6 +98,13 @@ func validate(cfg *Config) error {
 	default:
 		return fmt.Errorf("invalid mode: %q", cfg.Mode)
 	}
+
+	// ✅ peer 모드에서 IP가 반드시 필요한 설계라면 체크
+	// (Deployment + Headless Service로 DNS A레코드 사용 시, 자기 IP 필요)
+	if cfg.Mode == api.Peer && cfg.PodIP == "" {
+		return fmt.Errorf("POD_IP is required in peer mode (set via fieldRef: status.podIP)")
+	}
+
 	if cfg.MaxConcurrency <= 0 {
 		return fmt.Errorf("max-concurrency must be > 0")
 	}
