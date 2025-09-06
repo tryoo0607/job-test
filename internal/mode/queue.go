@@ -1,3 +1,18 @@
+package mode
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+	"github.com/tryoo0607/job-test/internal/config"
+	"github.com/tryoo0607/job-test/internal/processor"
+	"github.com/tryoo0607/job-test/internal/runtime"
+	"golang.org/x/sync/errgroup"
+)
+
 func RunQueue(ctx context.Context, cfg config.Config) error {
 	fmt.Println("🚀 [Queue] RunQueue 시작")
 	fmt.Printf("🔧 [Queue] Redis URL: %s, Queue Key: %s\n", cfg.QueueURL, cfg.QueueKey)
@@ -61,4 +76,18 @@ func RunQueue(ctx context.Context, cfg config.Config) error {
 	}
 
 	return g.Wait()
+}
+
+// 단순한 Redis URL 파싱기 (예: redis://localhost:6379 → localhost:6379)
+func mustParseRedis(url string) string {
+	if strings.HasPrefix(url, "redis://") {
+		return strings.TrimPrefix(url, "redis://")
+	}
+	return url
+}
+
+// ID 생성 (경로에서 파일명 추출 또는 UUID 사용 가능)
+func generateID(path string) string {
+	parts := strings.Split(path, "/")
+	return strings.TrimSuffix(parts[len(parts)-1], ".txt")
 }
