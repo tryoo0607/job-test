@@ -64,10 +64,6 @@ func loadEnv() {
 	if err := v.BindEnv("job-index", "JOB_COMPLETION_INDEX"); err != nil {
 		panic(fmt.Errorf("bind job-index failed: %w", err))
 	}
-
-	if err := v.BindEnv("job-name", "JOB_NAME"); err != nil {
-		panic(fmt.Errorf("bind job-name failed: %w", err))
-	}
 }
 
 func unmarshalConfig() (*Config, error) {
@@ -118,9 +114,6 @@ func validate(cfg *Config) error {
 		}
 		if cfg.Subdomain == "" {
 			return fmt.Errorf("peer mode requires subdomain (headless svc)")
-		}
-		if cfg.JobName == "" {
-			return fmt.Errorf("peer mode requires job-name")
 		}
 	}
 	return nil
