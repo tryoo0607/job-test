@@ -46,6 +46,7 @@ func loadFlag() {
 	// job-index는 env전용이라 플래그 생략
 	pflag.Int("total-pods", 1, "total number of pods (for indexed-peer mode)")
 	pflag.String("subdomain", "", "headless service subdomain (for indexed-peer mode)")
+	pflag.Duration("hold-for", 0, "hold duration after run (e.g. 30s, 0 to disable)")
 	pflag.Parse()
 }
 

@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/tryoo0607/job-test/internal/config"
+	"github.com/tryoo0607/job-test/internal/runtime"
 )
 
 func RunIndexedPeer(ctx context.Context, cfg config.Config) error {
 	fmt.Println("🚀 [Peer] Headless SVC DNS 기반 링 통신 시작")
-
 	if cfg.JobIndex == nil {
 		return fmt.Errorf("JOB_COMPLETION_INDEX missing")
 	}
@@ -24,7 +24,7 @@ func RunIndexedPeer(ctx context.Context, cfg config.Config) error {
 
 	myIdx := *cfg.JobIndex
 
-	// (옵션) 수신 서버: 다른 파드가 날 /ping 할 수 있게 열어둠
+	// 수신 서버는 먼저 띄워둠
 	go func() {
 		mux := http.NewServeMux()
 		mux.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
@@ -34,40 +34,29 @@ func RunIndexedPeer(ctx context.Context, cfg config.Config) error {
 		_ = http.ListenAndServe(":8080", mux)
 	}()
 
-	svc := cfg.Subdomain // 같은 네임스페이스면 svc 짧은 이름으로도 OK
+	svc := cfg.Subdomain
 
-	// DNS 조회 재시도(엔드포인트 전파 지연 흡수)
-	var addrs []net.IPAddr
-	for attempt := 1; attempt <= 6; attempt++ { // 최대 ~9초 대기
-		dnsCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		a, err := net.DefaultResolver.LookupIPAddr(dnsCtx, svc)
-		cancel()
-		if err == nil && len(a) > 0 {
-			addrs = a
-			break
-		}
-		time.Sleep(time.Duration(attempt) * 300 * time.Millisecond)
-	}
-	if len(addrs) == 0 {
-		return fmt.Errorf("dns lookup failed for %s (no endpoints)", svc)
+	// 1) WARM-UP: peers 모일 때까지 대기
+	// want 계산: TotalPods를 넘겨주고 있으면 그 값, 아니면 최소 2
+	want := 2
+	if cfg.TotalPods > 0 {
+		want = cfg.TotalPods
 	}
 
-	// peers 정렬(모든 파드에서 결정적 순서 보장)
-	peers := make([]string, 0, len(addrs))
-	for _, a := range addrs {
-		peers = append(peers, a.IP.String())
+	warmup := 30 * time.Second // 기본값 (원하면 config로 뺄 수 있음)
+	peers, err := waitForPeers(ctx, svc, want, warmup)
+	if err != nil {
+		return err
 	}
-	sort.Strings(peers)
 	fmt.Printf("🔎 peers(%d): %v\n", len(peers), peers)
 
-	// 내 다음 타겟 = (myIdx+1) % len(peers)
 	targetIP := peers[(myIdx+1)%len(peers)]
 	url := fmt.Sprintf("http://%s:8080/ping", targetIP)
 	fmt.Printf("🎯 target: %s (selfIdx=%d)\n", url, myIdx)
 
-	client := &http.Client{Timeout: 3 * time.Second}
-	var lastErr error
-	for attempt := 1; attempt <= 5; attempt++ {
+	// 2) HTTP 재시도: runtime.WithRetry 사용 (cfg.RetryMax / cfg.RetryBackoff로 조절)
+	client := &http.Client{Timeout: 5 * time.Second}
+	err = runtime.WithRetry(ctx, cfg.RetryMax, cfg.RetryBackoff, func() error {
 		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBufferString(
 			fmt.Sprintf(`{"from":%d}`, myIdx),
 		))
@@ -77,13 +66,48 @@ func RunIndexedPeer(ctx context.Context, cfg config.Config) error {
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := client.Do(req)
-		if err == nil && resp != nil {
-			defer resp.Body.Close()
-			fmt.Printf("✅ 응답: %s (attempt=%d)\n", resp.Status, attempt)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			fmt.Printf("✅ 응답: %s\n", resp.Status)
+			// 성공 시에만 hold
+			runtime.Hold(ctx, cfg.HoldFor)
 			return nil
 		}
-		lastErr = err
-		time.Sleep(time.Duration(attempt) * 200 * time.Millisecond)
+		return fmt.Errorf("bad status: %s", resp.Status)
+	})
+	if err != nil {
+		return fmt.Errorf("send to %s failed: %v", url, err)
 	}
-	return fmt.Errorf("send to %s failed: %v", url, lastErr)
+	return nil
+}
+
+func waitForPeers(ctx context.Context, svc string, want int, warmup time.Duration) ([]string, error) {
+	// want: 최소 필요한 peers 수 (예: 2 또는 cfg.TotalPods)
+	deadline, cancel := context.WithTimeout(ctx, warmup)
+	defer cancel()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-deadline.Done():
+			return nil, fmt.Errorf("peer warmup timeout after %s (want=%d)", warmup, want)
+		case <-ticker.C:
+			// DNS 조회
+			addrs, _ := net.DefaultResolver.LookupIPAddr(deadline, svc)
+			if len(addrs) >= want {
+				peers := make([]string, 0, len(addrs))
+				for _, a := range addrs {
+					peers = append(peers, a.IP.String())
+				}
+				sort.Strings(peers)
+				return peers, nil
+			}
+		}
+	}
 }

@@ -36,6 +36,7 @@ func RunIndexed(ctx context.Context, cfg config.Config) error {
 		fmt.Printf("❌ [Indexed] Processor 실행 실패: %v\n", err)
 	} else {
 		fmt.Println("✅ [Indexed] Processor 실행 완료")
+		runtime.Hold(ctx, cfg.HoldFor)
 	}
 
 	return err
